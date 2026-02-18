@@ -18,6 +18,7 @@ This paper presents a complete mathematical specification of the Bitcoin consens
 2. [System Model](#2-system-model)
    - 2.1 [Participants](#21-participants)
    - 2.2 [Network Assumptions](#22-network-assumptions)
+   - 2.2.1 [Networks and Parameters](#221-networks-and-parameters)
 3. [Mathematical Foundations](#3-mathematical-foundations)
    - 3.1 [Basic Types](#31-basic-types)
    - 3.2 [Core Data Structures](#32-core-data-structures)
@@ -69,6 +70,7 @@ This paper presents a complete mathematical specification of the Bitcoin consens
     - 11.3 [Chain Reorganization](#113-chain-reorganization)
       - 11.3.1 [Undo Log Pattern](#1131-undo-log-pattern)
     - 11.4 [UTXO Commitments](#114-utxo-commitments)
+    - 11.5 [Signet (BIP325)](#115-signet-bip325)
 12. [Mining Protocol](#12-mining-protocol)
     - 12.1 [Block Template Generation](#121-block-template-generation)
     - 12.2 [Coinbase Transaction](#122-coinbase-transaction)
@@ -120,6 +122,23 @@ Each section builds upon previous sections, with cross-references to maintain co
 - **Asynchronous Network**: Messages may be delayed or reordered
 - **Byzantine Fault Tolerance**: Some participants may behave maliciously
 - **Economic Rationality**: Participants act to maximize their utility
+
+### 2.2.1 Networks and Parameters
+
+Consensus rules are identical across networks. Only parameters differ.
+
+**Network set**: $\text{Network} = \{\text{mainnet}, \text{testnet}, \text{testnet4}, \text{signet}, \text{regtest}\}$
+
+For each $n \in \text{Network}$, the following parameters may differ:
+
+| Parameter | mainnet | testnet | testnet4 | signet | regtest |
+|-----------|---------|---------|----------|--------|---------|
+| $\text{EnforceBIP94}(n)$ | false | false | true | false | configurable |
+| $\text{SignetChallenge}(n)$ | $\emptyset$ | $\emptyset$ | $\emptyset$ | script | $\emptyset$ |
+| $\text{ScriptFlagExceptions}(n)$ | 2 blocks | 1 block | 0 | 0 | 0 |
+| Genesis, difficulty, retarget | distinct per $n$ | distinct | distinct | distinct | minimal |
+
+**References:** BIP94 (timewarp mitigation), BIP325 (signet), §5.2.5 (script flags), §7.1 (difficulty).
 
 ## 3. Mathematical Foundations
 
@@ -248,13 +267,13 @@ flowchart TD
 - Deterministic: $\text{CheckTxInputs}(tx_1, us_1, h_1) = \text{CheckTxInputs}(tx_2, us_2, h_2) \iff tx_1 = tx_2 \land us_1 = us_2 \land h_1 = h_2$
 - Result type: $\text{CheckTxInputs}(tx, us, h) \in \{(\text{valid}, \mathbb{Z}), (\text{invalid}, 0)\}$
 
-For transaction $tx$ with UTXO set $us$ at height $h$:
+$$\text{CheckTxInputs}(tx, us, h) = \begin{cases}
+(\text{valid}, 0) & \text{if } \text{IsCoinbase}(tx) \\
+(\text{invalid}, 0) & \text{if } \neg\text{IsCoinbase}(tx) \land \sum_{i \in tx.\text{inputs}} us(i.\text{prevout}).\text{value} < \sum_{o \in tx.\text{outputs}} o.\text{value} \\
+(\text{valid}, \text{fee}) & \text{otherwise}
+\end{cases}$$
 
-1. If $tx$ is coinbase: return $(\text{valid}, 0)$
-2. Let $total_{in} = \sum_{i \in ins} us(i.prevout).value$
-3. Let $total_{out} = \sum_{o \in outs} o.value$
-4. If $total_{in} < total_{out}$: return $(\text{invalid}, 0)$
-5. Return $(\text{valid}, total_{in} - total_{out})$
+Where $\text{fee} \coloneqq \sum_{i \in tx.\text{inputs}} us(i.\text{prevout}).\text{value} - \sum_{o \in tx.\text{outputs}} o.\text{value}$.
 
 #### 5.1.1 Transaction Sighash Calculation
 
@@ -277,7 +296,7 @@ $$\text{CalculateSighash}(tx, i, us, st, h) = \text{SHA256}(\text{SHA256}(\text{
 - Input index requirement: $\text{SighashScriptCode}(tx, i, us)$ requires $i < |tx.\text{inputs}|$ (valid input index)
 - UTXO existence: $\text{SighashScriptCode}(tx, i, us)$ requires $tx.\text{inputs}[i].\text{prevout} \in us$ (UTXO must exist)
 - Deterministic: $\text{SighashScriptCode}(tx_1, i_1, us_1) = \text{SighashScriptCode}(tx_2, i_2, us_2) \iff tx_1 = tx_2 \land i_1 = i_2 \land us_1 = us_2$
-- Result type: $\text{SighashScriptCode}(tx, i, us) \in \mathbb{S}$ (returns script)
+- Codomain: $\text{SighashScriptCode}(tx, i, us) \in \mathbb{S}$
 
 For transaction $tx$, input index $i$, and UTXO set $us$:
 
@@ -317,7 +336,7 @@ Where $\text{RemoveAll}(script, pattern)$ removes all occurrences of $pattern$ f
 - Input index requirement: $\text{SighashScriptCode}(tx, i, us, sv, sig)$ requires $i < |tx.\text{inputs}|$ (valid input index)
 - UTXO existence: $\text{SighashScriptCode}(tx, i, us, sv, sig)$ requires $tx.\text{inputs}[i].\text{prevout} \in us$ (UTXO must exist)
 - Deterministic: $\text{SighashScriptCode}(tx_1, i_1, us_1, sv_1, sig_1) = \text{SighashScriptCode}(tx_2, i_2, us_2, sv_2, sig_2) \iff tx_1 = tx_2 \land i_1 = i_2 \land us_1 = us_2 \land sv_1 = sv_2 \land sig_1 = sig_2$
-- Result type: $\text{SighashScriptCode}(tx, i, us, sv, sig) \in \mathbb{S}$ (returns script)
+- Result type: $\text{SighashScriptCode}(tx, i, us, sv, sig) \in \mathbb{S}$
 
 For transaction $tx$, input index $i$, UTXO set $us$, signature version $sv$, and signature $sig$:
 
@@ -329,7 +348,7 @@ $$\text{SighashScriptCode}(tx, i, us, sv, sig) = \begin{cases}
 Where:
 - $\text{BaseScriptCode}(tx, i, us)$ is the base script code (redeem script for P2SH, scriptPubkey otherwise)
 - $\text{SerializePush}(sig)$ is the serialized push operation for signature $sig$
-- $\text{IsSignatureOpcode}(opcode)$ returns true for OP_CHECKSIG (0xac), OP_CHECKSIGVERIFY (0xad), OP_CHECKMULTISIG (0xae), OP_CHECKMULTISIGVERIFY (0xaf)
+- $\text{IsSignatureOpcode}(op) \iff op \in \{0x\text{ac}, 0x\text{ad}, 0x\text{ae}, 0x\text{af}\}$ (OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKMULTISIG, OP_CHECKMULTISIGVERIFY)
 
 **SighashType**: $\mathbb{N}_{8} \times \mathbb{N} \rightarrow \text{SighashType}$
 
@@ -370,7 +389,7 @@ Where $H_{66}$ is the BIP66 activation height (mainnet: 363,724).
 
 $$\forall tx \in \mathcal{TX}, i \in \mathbb{N}, sig \in \mathbb{S}, sv = \text{Base}: \text{IsSignatureOpcode}(opcode) \implies \text{CalculateSighash}(tx, i, us, st, h) \text{ uses } \text{FindAndDelete}(\text{BaseScriptCode}(tx, i, us), \text{SerializePush}(sig))$$
 
-*Proof*: By construction, Bitcoin Core applies FindAndDelete to remove signature patterns from scriptCode before computing sighash for legacy signature opcodes (OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKMULTISIG, OP_CHECKMULTISIGVERIFY). This ensures that signatures appearing in the redeem script (e.g., P2SH multisig edge cases where signatures appear as "pubkeys") do not affect the sighash computation. For SegWit (BIP143), FindAndDelete is explicitly omitted, so this only applies to SigVersion::Base. This is proven by the requirement that $\text{SighashScriptCode}$ applies FindAndDelete for legacy scripts when signature opcodes are used.
+*Proof*: From the definition of $\text{SighashScriptCode}$, FindAndDelete is applied to remove signature patterns from scriptCode before computing sighash for legacy signature opcodes (OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKMULTISIG, OP_CHECKMULTISIGVERIFY). This ensures that signatures appearing in the redeem script (e.g., P2SH multisig edge cases where signatures appear as "pubkeys") do not affect the sighash computation. For SegWit (BIP143), FindAndDelete is explicitly omitted, so this only applies to SigVersion::Base. The piecewise definition above requires FindAndDelete for legacy scripts when signature opcodes are used.
 
 ### 5.2 Script Execution
 
@@ -378,15 +397,14 @@ Bitcoin uses a stack-based scripting language for transaction validation. Script
 
 **EvalScript**: $\mathcal{SC} \times \mathcal{ST} \times \mathbb{N} \rightarrow \{\text{true}, \text{false}\}$
 
-Script execution follows a stack-based virtual machine:
+$\text{EvalScript}(script, S_0, f) = \text{true}$ iff execution terminates without failure and the final stack $S_f$ satisfies $|S_f| = 1 \land S_f[0] \neq 0$.
 
-1. Initialize stack $S = \emptyset$
-2. For each opcode $op$ in script:
-   - If $|S| > L_{stack}$: return $\text{false}$ (stack overflow)
-   - If operation count $> L_{ops}$: return $\text{false}$ (operation limit exceeded)
-   - Execute $op$ with current stack state
-   - If execution fails: return $\text{false}$
-3. Return $|S| = 1 \land S[0] \neq 0$ (exactly one non-zero value on stack)
+Execution fails (yielding $\text{false}$) iff at any step:
+- $\text{StackOverflow}(S)$: $|S| > L_{stack}$, or
+- $\text{OpLimitExceeded}(c)$: operation count $c > L_{ops}$, or
+- $\text{OpcodeFails}(op, S)$: execution of $op$ on stack $S$ fails.
+
+Formally: $\text{EvalScript}(script, S_0, f) = \text{false} \iff \text{Execute}(script, S_0, f) \downarrow \land (\text{Overflow} \lor \text{OverOps} \lor \text{OpFail})$, where $\downarrow$ indicates termination and the disjunction holds at some step.
 
 **Properties**:
 - Success condition: $\text{EvalScript}(script, stack, flags) = \text{true} \iff |stack| = 1 \land stack[0] \neq 0$
@@ -474,7 +492,7 @@ $$\text{P2SHPushOnlyCheck}(ss) = \begin{cases}
 \text{invalid} & \text{otherwise}
 \end{cases}$$
 
-Where $\text{IsPushOpcode}(op)$ returns true if $op$ is a push opcode (0x00-0x4e) with valid encoding:
+Where $\text{IsPushOpcode}(op) \iff op \in \text{PushOpcode}$, and $\text{PushOpcode}$ is the set of valid push encodings:
 - Direct push: $0x01 \leq op \leq 0x4b$ (push 1-75 bytes)
 - OP_PUSHDATA1: $op = 0x4c$ (followed by 1-byte length)
 - OP_PUSHDATA2: $op = 0x4d$ (followed by 2-byte length)
@@ -635,7 +653,7 @@ $$\forall stack \in \mathcal{ST}: \text{OP_VER}(stack, fExec) = \begin{cases}
 \text{skip} & \text{if } fExec = \text{false}
 \end{cases}$$
 
-*Proof*: By construction, Bitcoin Core places OP_VER inside the `if (fExec || ...)` check, so it only fails when actually executing. In non-executing branches, OP_VER is skipped like any other opcode. This differs from truly disabled opcodes which fail unconditionally.
+*Proof*: From the piecewise definition, OP_VER yields error only when $fExec = \text{true}$. In non-executing branches ($fExec = \text{false}$), it yields skip and advances the instruction pointer. Truly disabled opcodes fail unconditionally; OP_VER is conditional.
 
 **Instruction Pointer Advancement**: For conditional opcodes in false branches, the instruction pointer must advance:
 
@@ -663,7 +681,7 @@ For transaction $tx$, witness $w$, height $h$, and network $n$:
 
 $$\text{CalculateScriptFlags}(tx, w, h, n) = \bigcup_{flag \in \text{ActiveFlags}(tx, w, h, n)} flag$$
 
-Where $\text{ActiveFlags}(tx, w, h, n)$ returns the set of flags active for this transaction:
+Where $\text{ActiveFlags}(tx, w, h, n) \subseteq \text{AllFlags}$ is the set of flags active for $(tx, w)$ at height $h$ on network $n$:
 
 $$\text{ActiveFlags}(tx, w, h, n) = \{f : f \in \text{AllFlags} \land \text{IsFlagActive}(f, tx, w, h, n)\}$$
 
@@ -696,7 +714,7 @@ $$\forall tx_1, tx_2 \in \mathcal{TX}, tx_1 \neq tx_2 : \text{CalculateScriptFla
 
 **Theorem 5.2.2** (Per-Transaction Flag Calculation): Script verification flags must be calculated per-transaction based on transaction characteristics and block height.
 
-*Proof*: By construction, flags depend on both block height (activation) and transaction characteristics (witness presence, output types). Different transactions in the same block may have different flags, so flags cannot be calculated once per block. This is proven by the implementation requirement that $\text{CalculateScriptFlags}$ is called for each transaction individually.
+*Proof*: From the definition of $\text{CalculateScriptFlags}$, flags depend on both block height (activation) and transaction characteristics (witness presence, output types). Different transactions in the same block may have different flags, so flags must be computed per transaction.
 
 **Activation Heights** (Mainnet):
 - P2SH: Block 173,805
@@ -704,6 +722,23 @@ $$\forall tx_1, tx_2 \in \mathcal{TX}, tx_1 \neq tx_2 : \text{CalculateScriptFla
 - BIP65 (CLTV): Block 388,381
 - SegWit (WITNESS, NULLDUMMY, CSV): Block 481,824
 - Taproot (WITNESS_PUBKEYTYPE): Block 709,632
+
+#### 5.2.6 Script Flag Exceptions
+
+Some blocks use different script verification flags than the default (historical BIP16 and Taproot activation exceptions).
+
+**ScriptFlagExceptions**: $\text{Network} \rightarrow (\mathbb{H} \rightharpoonup \mathbb{N}_{32})$
+
+For each network $n$, $\text{ScriptFlagExceptions}(n)$ is a partial map from block hash to override flags. When validating transactions in block $b$, if $\text{hash}(b) \in \text{dom}(\text{ScriptFlagExceptions}(n))$, use the override; otherwise use $\text{CalculateScriptFlags}(tx, w, h, n)$.
+
+**GetBlockScriptFlags**: $\mathbb{H} \times \mathcal{TX} \times \mathcal{W}^? \times \mathbb{N} \times \text{Network} \rightarrow \mathbb{N}_{32}$
+
+$$\text{GetBlockScriptFlags}(h_b, tx, w, h, n) = \begin{cases}
+\text{ScriptFlagExceptions}(n)(h_b) & \text{if } h_b \in \text{dom}(\text{ScriptFlagExceptions}(n)) \\
+\text{CalculateScriptFlags}(tx, w, h, n) & \text{otherwise}
+\end{cases}$$
+
+Where $h_b = \text{hash}(b)$ is the block hash. Mainnet has 2 exceptions (BIP16, Taproot); testnet has 1 (BIP16). See §2.2.1.
 
 ### 5.3 Block Validation
 
@@ -730,20 +765,20 @@ For block $b = (h, txs)$ with UTXO set $us$ at height $height$:
 $$\forall tx \in \mathcal{TX}, us \in \mathcal{US}, h \in \mathbb{N}:$$
 $$\text{ApplyTransaction}(tx, us, h) = \text{ApplyTransactionWithId}(tx, \text{CalculateTxId}(tx), us, h)$$
 
-*Proof*: Both functions perform the same UTXO set transformations. The only difference is that `apply_transaction_with_id` accepts a pre-computed transaction ID, while `apply_transaction` computes it internally. The equivalence is verified by comparing UTXO sets produced by both functions, ensuring they are identical. This property is implicitly proven through the consistency proofs in the implementation.
+*Proof*: Both functions apply identical UTXO set transformations. The sole difference is the source of the transaction identifier: $\text{ApplyTransaction}$ computes $\text{CalculateTxId}(tx)$ internally, while $\text{ApplyTransactionWithId}$ accepts it as argument. The outputs are identical by structural induction on the transaction application steps.
 
 **Corollary 5.3.1.1**: Transaction application is deterministic and side-effect-free, regardless of which function is used.
 
-1. Validate block header $h$
-2. For each transaction $tx \in txs$:
-   - Validate $tx$ structure
-   - Check inputs against $us$
-   - Verify scripts
-3. Let $fees = \sum_{tx \in txs} \text{fee}(tx)$
-4. Let $subsidy = \text{GetBlockSubsidy}(height)$
-5. If coinbase output $> fees + subsidy$: return $(\text{invalid}, us)$
-6. Apply all transactions to $us$: $us' = \text{ApplyTransactions}(txs, us)$
-7. Return $(\text{valid}, us')$
+$$\text{ConnectBlock}(b = (h, txs), us, \text{height}) = \begin{cases}
+(\text{invalid}, us) & \text{if } \neg\text{ValidBlockHeader}(h) \\
+(\text{invalid}, us) & \text{if } \exists tx \in txs : \text{CheckTransaction}(tx) \neq \text{valid} \\
+(\text{invalid}, us) & \text{if } \exists tx \in txs : \text{CheckTxInputs}(tx, us, \text{height}) = (\text{invalid}, \cdot) \\
+(\text{invalid}, us) & \text{if } \exists tx \in txs : \neg\text{VerifyScripts}(tx, us, \text{height}) \\
+(\text{invalid}, us) & \text{if } \text{coinbase output} > \sum_{tx \in txs} \text{fee}(tx) + \text{GetBlockSubsidy}(\text{height}) \\
+(\text{valid}, us') & \text{otherwise}
+\end{cases}$$
+
+Where $us' = \text{ApplyTransactions}(txs, us)$ in the final case.
 
 ```mermaid
 flowchart TD
@@ -793,11 +828,10 @@ flowchart TD
 - Deterministic: $\text{ApplyTransaction}(tx_1, us_1) = \text{ApplyTransaction}(tx_2, us_2) \iff tx_1 = tx_2 \land us_1 = us_2$
 - Idempotency with undo: $\text{DisconnectBlock}(b, ul, \text{ConnectBlock}(b, us, h)) = us$ where $ul$ is undo log from ConnectBlock
 
-For transaction $tx$ and UTXO set $us$:
-
-1. If $tx$ is coinbase: $us' = us \cup \{(tx.id, i) \mapsto tx.outputs[i] : i \in [0, |tx.outputs|)\}$
-2. Otherwise: $us' = (us \setminus \{i.prevout : i \in tx.inputs\}) \cup \{(tx.id, i) \mapsto tx.outputs[i] : i \in [0, |tx.outputs|)\}$
-3. Return $us'$
+$$\text{ApplyTransaction}(tx, us, h) = \begin{cases}
+us \cup \{(tx.\text{id}, i) \mapsto tx.\text{outputs}[i] : i \in [0, |tx.\text{outputs}|)\} & \text{if } \text{IsCoinbase}(tx) \\
+(us \setminus \{i.\text{prevout} : i \in tx.\text{inputs}\}) \cup \{(tx.\text{id}, i) \mapsto tx.\text{outputs}[i] : i \in [0, |tx.\text{outputs}|)\} & \text{otherwise}
+\end{cases}$$
 
 ```mermaid
 stateDiagram-v2
@@ -1070,7 +1104,7 @@ $$\forall scriptSig, scriptPubkey \in \mathbb{S}, h \geq H_{147} : \text{Contain
 
 $$\forall stack \in \mathcal{ST}: \text{OP_CHECKMULTISIG}(stack) \text{ uses } m = \text{DecodeCScriptNum}(stack[|stack|-2]) \land n = \text{DecodeCScriptNum}(stack[|stack|-1])$$
 
-*Proof*: By construction, Bitcoin Core uses CScriptNum decoding for OP_CHECKMULTISIG parameters. This allows empty byte arrays to be interpreted as 0, which is required for certain edge cases (e.g., block 299,917). Raw byte parsing would reject empty arrays, but CScriptNum correctly decodes them to 0.
+*Proof*: From the definition of $\text{DecodeCScriptNum}$, OP_CHECKMULTISIG parameters use CScriptNum decoding. This allows empty byte arrays to be interpreted as 0, which is required for certain edge cases (e.g., block 299,917). Raw byte parsing would reject empty arrays, but CScriptNum correctly decodes them to 0.
 
 **Activation Heights**:
 - Mainnet: Block 481,824 (SegWit activation)
@@ -1210,7 +1244,7 @@ $$\text{BIP65Check}(tx, i, lt, h) = \begin{cases}
 \text{valid} & \text{otherwise}
 \end{cases}$$
 
-Where $\text{LocktimeType}(x)$ returns $\text{BlockHeight}$ if $x < 500000000$, otherwise $\text{Timestamp}$.
+Where $\text{LocktimeType}(x) = \begin{cases} \text{BlockHeight} & x < 5\times10^8 \\ \text{Timestamp} & \text{otherwise} \end{cases}$.
 
 **OP_CHECKLOCKTIMEVERIFY (opcode 0xb1)**:
 - **Stack Input**: $[lt]$ where $lt$ is a locktime value (encoded as minimal byte string)
@@ -1335,7 +1369,7 @@ $$\forall msg, pk \in \mathbb{S}, h \in \mathbb{N}: |sig| = 0 \implies \text{BIP
 
 $$\forall msg, pk, sig \in \mathbb{S}, h \in \mathbb{N}: \text{BIP348Check}(msg, pk, sig, h) = \text{valid} \land |pk| = 32 \land |sig| = 64 \implies \text{VerifySchnorr}(msg, pk, sig) = \text{true}$$
 
-*Proof*: By construction, CSFS uses BIP 340 Schnorr signature verification for 32-byte pubkeys. The message is hashed with SHA256 before verification (BIP 340 accepts any size, but secp256k1 requires 32 bytes). This matches the reference implementation in Bitcoin Core PR #29270.
+*Proof*: From the definition of $\text{BIP348Check}$, CSFS uses BIP 340 Schnorr signature verification for 32-byte pubkeys. The message is hashed with SHA256 before verification (BIP 340 accepts any size, but secp256k1 requires 32 bytes), per BIP 340 specification.
 
 **Theorem 5.4.8.5** (CSFS Unknown Pubkey Type): Unknown pubkey types (non-32-byte) succeed:
 
@@ -1391,7 +1425,7 @@ $$\text{BIP65Check}(tx, i, lt, h) = \begin{cases}
 \text{valid} & \text{otherwise}
 \end{cases}$$
 
-Where $\text{LocktimeType}(x)$ returns $\text{BlockHeight}$ if $x < 500000000$, otherwise $\text{Timestamp}$.
+Where $\text{LocktimeType}(x) = \begin{cases} \text{BlockHeight} & x < 5\times10^8 \\ \text{Timestamp} & \text{otherwise} \end{cases}$.
 
 **OP_CHECKLOCKTIMEVERIFY (opcode 0xb1)**:
 - **Stack Input**: $[lt]$ where $lt$ is a locktime value (encoded as minimal byte string)
@@ -1491,7 +1525,7 @@ $$\text{IsSequenceDisabled}(seq) = (seq \land 0x80000000) \neq 0$$
 - Bounds: $\text{GetMedianTimePast}(headers) \geq \min(\{h.\text{timestamp} : h \in headers\}) \land \text{GetMedianTimePast}(headers) \leq \max(\{h.\text{timestamp} : h \in headers\})$ (median within timestamp range)
 - Last 11 blocks: $\text{GetMedianTimePast}(headers)$ uses at most the last 11 block headers (BIP113 requirement)
 - Deterministic: $\text{GetMedianTimePast}(h_1) = \text{GetMedianTimePast}(h_2) \iff h_1 = h_2$
-- Result type: $\text{GetMedianTimePast}(headers) \in \mathbb{N}$ (returns Unix timestamp)
+- Codomain: $\text{GetMedianTimePast}(headers) \in \mathbb{N}$
 
 For block headers $headers \in [\mathcal{H}]$:
 
@@ -1797,27 +1831,28 @@ Where:
 
 *Proof*: This function converts the compact difficulty representation (used in block headers) to a full 256-bit target value. The compact format uses 3 bytes for the exponent and 3 bytes for the mantissa. This is proven by blvm-spec-lock formal verification.
 
-**Properties**:
-- Valid bits range: $\text{GetNextWorkRequired}(h, prev) \implies 0 < \text{result} \leq \text{MAX\_TARGET}$
-- Bits positivity: $\text{GetNextWorkRequired}(h, prev) > 0$
-
-**GetNextWorkRequired**: $\mathcal{H} \times \mathcal{H}^* \rightarrow \mathbb{N}$
+**GetNextWorkRequired**: $\mathcal{H} \times \mathcal{H}^* \times \text{Network} \rightarrow \mathbb{N}$
 
 **Properties**:
-- Minimum headers: $\text{GetNextWorkRequired}(h, prev)$ requires $|prev| \geq 2$ for adjustment (otherwise returns initial difficulty)
-- Difficulty bounds: $\text{GetNextWorkRequired}(h, prev) \leq \text{maxTarget}$ (difficulty never exceeds maximum)
-- Positive difficulty: $\text{GetNextWorkRequired}(h, prev) > 0$ (difficulty is always positive)
-- Deterministic: $\text{GetNextWorkRequired}(h_1, prev_1) = \text{GetNextWorkRequired}(h_2, prev_2) \iff h_1 = h_2 \land prev_1 = prev_2$
-- Time-based adjustment: $\text{GetNextWorkRequired}(h, prev)$ adjusts difficulty based on time span between blocks
+- Minimum headers: $\text{GetNextWorkRequired}(h, prev, n)$ requires $|prev| \geq 2$ for adjustment (otherwise returns initial difficulty)
+- Difficulty bounds: $\text{GetNextWorkRequired}(h, prev, n) \leq \text{maxTarget}$ (difficulty never exceeds maximum)
+- Positive difficulty: $\text{GetNextWorkRequired}(h, prev, n) > 0$ (difficulty is always positive)
+- Deterministic: $\text{GetNextWorkRequired}(h_1, prev_1, n) = \text{GetNextWorkRequired}(h_2, prev_2, n) \iff h_1 = h_2 \land prev_1 = prev_2 \land n \text{ same}$
+- Time-based adjustment: $\text{GetNextWorkRequired}(h, prev, n)$ adjusts difficulty based on time span between blocks
+- BIP94 base: when $\text{EnforceBIP94}(n)$, bits base from $prev_{\text{first}}$; otherwise from $prev_{\text{last}}$
 
-For block header $h$ and previous headers $prev$:
+Let $prev_{\text{last}}$ denote the last block of the difficulty period and $prev_{\text{first}}$ the first. Let $T_{\text{expected}} = 14 \times 24 \times 60 \times 60$ (2 weeks in seconds). The timespan and bits base use only the completed period — the new block $h$ does not affect the result (timewarp safety).
 
-1. If $|prev| < 2$: return initial difficulty
-2. Let $timeSpan = h.time - prev[0].time$
-3. Let $expectedTime = 14 \times 24 \times 60 \times 60$ (2 weeks)
-4. Let $adjustment = \frac{timeSpan}{expectedTime}$
-5. Let $newTarget = h.bits \times adjustment$
-6. Return $\min(newTarget, maxTarget)$
+$$\text{timeSpan} = \text{ClampTime}(prev_{\text{last}}.\text{time} - prev_{\text{first}}.\text{time}), \quad \text{ClampTime}(t) \coloneqq \max(T_{\text{expected}}/4, \min(4 T_{\text{expected}}, t))$$
+
+Let $\text{bitsBase}(prev, n) \coloneqq prev_{\text{first}}.\text{bits}$ if $\text{EnforceBIP94}(n)$, else $prev_{\text{last}}.\text{bits}$.
+
+$$\text{GetNextWorkRequired}(h, prev, n) = \begin{cases}
+\text{initialDifficulty} & \text{if } |prev| < 2 \\
+\text{ToCompact}\left(\min\left(\text{ExpandTarget}(\text{bitsBase}(prev, n)) \times \frac{\text{timeSpan}}{T_{\text{expected}}}, \text{maxTarget}\right)\right) & \text{otherwise}
+\end{cases}$$
+
+**BIP94 Timestamp Rule** (when $\text{EnforceBIP94}(n)$): For the first block of a new difficulty period, $\text{block}.\text{time} \geq \text{prev}.\text{time} - 600$ (MAX_TIMEWARP). Violation yields invalid block.
 
 ```mermaid
 flowchart TD
@@ -1874,8 +1909,8 @@ Where $exponent = (bits \gg 24) \land 0xff$ and $mantissa = bits \land 0x00fffff
 
 **Theorem 7.1.2** (Difficulty Adjustment Bounds Enforcement): Difficulty adjustment respects maximum and minimum bounds:
 
-$$\forall h \in \mathcal{H}, prev \in [\mathcal{H}]:$$
-$$\text{GetNextWorkRequired}(h, prev) \leq \text{MAX\_TARGET} \land \text{GetNextWorkRequired}(h, prev) > 0$$
+$$\forall h \in \mathcal{H}, prev \in \mathcal{H}^*, n \in \text{Network}:$$
+$$\text{GetNextWorkRequired}(h, prev, n) \leq \text{MAX\_TARGET} \land \text{GetNextWorkRequired}(h, prev, n) > 0$$
 
 *Proof*: By construction, the difficulty adjustment algorithm clamps the result to ensure it never exceeds $\text{MAX\_TARGET}$ and is always positive. This is proven by blvm-spec-lock formal verification.
 
@@ -2821,6 +2856,28 @@ $$utxo \in us \land us[\text{outpoint}] = utxo$$
 
 *Proof*: By construction, the Merkle tree provides cryptographic commitment. A Merkle proof for a specific outpoint can verify inclusion without revealing the entire UTXO set.
 
+### 11.5 Signet (BIP325)
+
+Signet is a test network with an additional consensus parameter: the coinbase witness commitment must satisfy a challenge script. See BIP325.
+
+**SignetChallenge**: $\text{Network} \rightarrow \mathbb{S}^?$
+
+For each network $n$, $\text{SignetChallenge}(n) \in \mathbb{S} \cup \{\emptyset\}$. When $\text{SignetChallenge}(n) \neq \emptyset$, signet validation applies.
+
+**CheckSignetBlockSolution**: $\mathcal{B} \times \text{Network} \rightarrow \{\text{valid}, \text{invalid}\}$
+
+For block $b$ and network $n$:
+
+$$\text{CheckSignetBlockSolution}(b, n) = \begin{cases}
+\text{valid} & \text{if } \text{SignetChallenge}(n) = \emptyset \\
+\text{valid} & \text{if } \text{SignetChallenge}(n) \neq \emptyset \land \text{WitnessCommitmentSatisfiesChallenge}(b, \text{SignetChallenge}(n)) \\
+\text{invalid} & \text{otherwise}
+\end{cases}$$
+
+**Witness commitment validation**: When $\text{SignetChallenge}(n) \neq \emptyset$, the block's coinbase witness commitment must commit to data that satisfies the challenge script (script is executed with witness commitment payload as input; must leave exactly one non-zero value on stack). Violation yields invalid block.
+
+**Property**: $\text{ConnectBlock}(b, us, h) = \text{valid} \land \text{SignetChallenge}(n) \neq \emptyset \implies \text{CheckSignetBlockSolution}(b, n) = \text{valid}$
+
 ## 12. Mining Protocol
 
 ### 12.1 Block Template Generation
@@ -2844,7 +2901,7 @@ For UTXO set $us$ and mempool transactions $mempool$:
 3. **Set Time**: $block.time = \text{CurrentTime}()$
 4. **Add Transactions**: Select transactions from mempool respecting weight limits
 5. **Create Coinbase**: Generate coinbase transaction (see [Coinbase Transaction](#122-coinbase-transaction))
-6. **Set Header**: $block.hashPrevBlock = prevBlock.hash$, $block.nBits = \text{GetNextWorkRequired}()$
+6. **Set Header**: $block.hashPrevBlock = prevBlock.hash$, $block.nBits = \text{GetNextWorkRequired}(h, prev, n)$
 7. **Initialize Nonce**: $block.nNonce = 0$
 
 ### 12.2 Coinbase Transaction
