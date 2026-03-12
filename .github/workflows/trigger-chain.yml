@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   trigger-consensus:
-    name: Trigger bllvm-consensus Build
+    name: Trigger blvm-consensus Build
     runs-on: [self-hosted, Linux, X64, builds]
     steps:
       - name: Determine version/tag
@@ -29,17 +29,17 @@ jobs:
             VERSION="${{ github.ref_name }}"
           fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Triggering bllvm-consensus build with version: ${VERSION}"
+          echo "Triggering blvm-consensus build with version: ${VERSION}"
       
-      - name: Trigger bllvm-consensus build
+      - name: Trigger blvm-consensus build
         uses: peter-evans/repository-dispatch@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          repository: BTCDecoded/bllvm-consensus
+          repository: BTCDecoded/blvm-consensus
           event-type: build-chain
           client-payload: |
             {
-              "triggered_by": "bllvm-spec",
+              "triggered_by": "blvm-spec",
               "version": "${{ steps.version.outputs.version }}",
               "source_ref": "${{ github.ref }}",
               "source_sha": "${{ github.sha }}"

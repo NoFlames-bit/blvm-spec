@@ -3435,7 +3435,7 @@ The governance system combines two dimensions:
 **Layer System** (Repository Architecture):
 - **Layer 1-2** (Constitutional): `blvm-spec`, `blvm-consensus` - 6-of-7 signatures, 180 days (365 for consensus changes)
 - **Layer 3** (Implementation): `blvm-protocol` - 4-of-5 signatures, 90 days
-- **Layer 4** (Application): `blvm-node`, `bllvm` - 3-of-5 signatures, 60 days
+- **Layer 4** (Application): `blvm-node`, `blvm` - 3-of-5 signatures, 60 days
 - **Layer 5** (Extension): `blvm-sdk` - 2-of-3 signatures, 14 days
 
 **Tier System** (Action Classification):
